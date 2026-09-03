@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use orm::entity::case::{ActiveModel as CaseActiveModel, Entity as CaseEntity, Model as CaseModel};
 use orm::entity::document::{self, ActiveModel, Entity as DocumentEntity, Model as DocumentModel};
 use orm::entity::sea_orm_active_enums::DocumentStatus;
 use sea_orm::{
@@ -12,16 +13,82 @@ use crate::errors::DocumentErrors;
 use crate::storage::object_store::ObjectStore;
 use crate::storage::s3_object_store::S3ObjectStore;
 
+// ---------------------------------------------------------------------------
+// DTOs (Data Transfer Objects)
+// ---------------------------------------------------------------------------
+
 /// Response returned when a new upload is initiated.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InitiateUploadResponse {
     pub document_id: Uuid,
     pub upload_url: String,
     pub object_key: String,
 }
 
-/// Orchestrates document lifecycle: upload initiation, confirmation,
-/// download URL generation, listing, and deletion.
+/// Serializable Document response DTO
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentResponse {
+    pub id: Uuid,
+    pub title: String,
+    pub description: String,
+    pub status: String,
+    pub object_key: String,
+    pub extracted_information: Option<serde_json::Value>,
+    pub case_id: Uuid,
+    pub created_at: chrono::DateTime<chrono::FixedOffset>,
+    pub updated_at: chrono::DateTime<chrono::FixedOffset>,
+}
+
+impl From<DocumentModel> for DocumentResponse {
+    fn from(m: DocumentModel) -> Self {
+        let status = match m.status {
+            DocumentStatus::Pending => "pending",
+            DocumentStatus::Processing => "processing",
+            DocumentStatus::Success => "success",
+            DocumentStatus::Failed => "failed",
+            DocumentStatus::Finish => "finish",
+        };
+        Self {
+            id: m.id,
+            title: m.title,
+            description: m.description,
+            status: status.to_string(),
+            object_key: m.object_key,
+            extracted_information: m.extracted_information,
+            case_id: m.case_id,
+            created_at: m.created_at,
+            updated_at: m.updated_at,
+        }
+    }
+}
+
+/// Serializable Case response DTO
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaseResponse {
+    pub id: Uuid,
+    pub name: String,
+    pub created_at: chrono::DateTime<chrono::FixedOffset>,
+    pub updated_at: chrono::DateTime<chrono::FixedOffset>,
+}
+
+impl From<CaseModel> for CaseResponse {
+    fn from(m: CaseModel) -> Self {
+        Self {
+            id: m.id,
+            name: m.name,
+            created_at: m.created_at,
+            updated_at: m.updated_at,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DocumentManager
+// ---------------------------------------------------------------------------
+
+/// Orchestrates document lifecycle and case management:
+/// upload initiation, confirmation, download URL generation, listing, deletion,
+/// and Case CRUD operations.
 pub struct DocumentManager {
     db: DatabaseConnection,
     storage: S3ObjectStore,
@@ -32,6 +99,10 @@ impl DocumentManager {
     pub fn new(db: DatabaseConnection, storage: S3ObjectStore) -> Self {
         Self { db, storage }
     }
+
+    // -----------------------------------------------------------------------
+    // Document operations
+    // -----------------------------------------------------------------------
 
     /// Initiate a new document upload.
     ///
@@ -86,7 +157,7 @@ impl DocumentManager {
         &self,
         document_id: Uuid,
         success: bool,
-    ) -> Result<DocumentModel, DocumentErrors> {
+    ) -> Result<DocumentResponse, DocumentErrors> {
         let doc = DocumentEntity::find_by_id(document_id)
             .one(&self.db)
             .await?
@@ -113,7 +184,7 @@ impl DocumentManager {
         active_model.updated_at = Set(now);
 
         let updated = active_model.update(&self.db).await?;
-        Ok(updated)
+        Ok(DocumentResponse::from(updated))
     }
 
     /// Generate a presigned download (GET) URL for a document.
@@ -140,20 +211,21 @@ impl DocumentManager {
     pub async fn get_document(
         &self,
         document_id: Uuid,
-    ) -> Result<DocumentModel, DocumentErrors> {
-        DocumentEntity::find_by_id(document_id)
+    ) -> Result<DocumentResponse, DocumentErrors> {
+        let doc = DocumentEntity::find_by_id(document_id)
             .one(&self.db)
             .await?
             .ok_or_else(|| {
                 DocumentErrors::NotFound(format!("Document {} not found", document_id))
-            })
+            })?;
+        Ok(DocumentResponse::from(doc))
     }
 
     /// List documents, optionally filtered by case ID.
     pub async fn list_documents(
         &self,
         case_id: Option<Uuid>,
-    ) -> Result<Vec<DocumentModel>, DocumentErrors> {
+    ) -> Result<Vec<DocumentResponse>, DocumentErrors> {
         let mut query = DocumentEntity::find();
 
         if let Some(cid) = case_id {
@@ -161,7 +233,7 @@ impl DocumentManager {
         }
 
         let docs = query.all(&self.db).await?;
-        Ok(docs)
+        Ok(docs.into_iter().map(DocumentResponse::from).collect())
     }
 
     /// Delete a document from both S3 and the database.
@@ -181,6 +253,92 @@ impl DocumentManager {
 
         // Then delete from database
         let active_model: ActiveModel = doc.into();
+        active_model.delete(&self.db).await?;
+
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Case CRUD operations
+    // -----------------------------------------------------------------------
+
+    /// Create a new case.
+    pub async fn create_case(&self, name: String) -> Result<CaseResponse, DocumentErrors> {
+        if name.trim().is_empty() {
+            return Err(DocumentErrors::ValidationError(
+                "Case name cannot be empty".to_string(),
+            ));
+        }
+
+        let case_id = Uuid::new_v4();
+        let now = chrono::Utc::now().fixed_offset();
+        let active_model = CaseActiveModel {
+            id: Set(case_id),
+            name: Set(name),
+            created_at: Set(now),
+            updated_at: Set(now),
+        };
+
+        let case = active_model.insert(&self.db).await?;
+        Ok(CaseResponse::from(case))
+    }
+
+    /// Get a single case by ID.
+    pub async fn get_case(&self, case_id: Uuid) -> Result<CaseResponse, DocumentErrors> {
+        let case = CaseEntity::find_by_id(case_id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| {
+                DocumentErrors::NotFound(format!("Case {} not found", case_id))
+            })?;
+        Ok(CaseResponse::from(case))
+    }
+
+    /// List all cases.
+    pub async fn list_cases(&self) -> Result<Vec<CaseResponse>, DocumentErrors> {
+        let cases = CaseEntity::find().all(&self.db).await?;
+        Ok(cases.into_iter().map(CaseResponse::from).collect())
+    }
+
+    /// Update a case's name by ID.
+    pub async fn update_case(
+        &self,
+        case_id: Uuid,
+        name: String,
+    ) -> Result<CaseResponse, DocumentErrors> {
+        if name.trim().is_empty() {
+            return Err(DocumentErrors::ValidationError(
+                "Case name cannot be empty".to_string(),
+            ));
+        }
+
+        let case = CaseEntity::find_by_id(case_id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| {
+                DocumentErrors::NotFound(format!("Case {} not found", case_id))
+            })?;
+
+        let now = chrono::Utc::now().fixed_offset();
+        let mut active_model: CaseActiveModel = case.into();
+        active_model.name = Set(name);
+        active_model.updated_at = Set(now);
+
+        let updated = active_model.update(&self.db).await?;
+        Ok(CaseResponse::from(updated))
+    }
+
+    /// Delete a case by ID.
+    /// Foreign key ON DELETE CASCADE in PostgreSQL removes related document records.
+    pub async fn delete_case(&self, case_id: Uuid) -> Result<(), DocumentErrors> {
+        let case = CaseEntity::find_by_id(case_id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| {
+                DocumentErrors::NotFound(format!("Case {} not found", case_id))
+            })?;
+
+        let active_model: CaseActiveModel = case.into();
         active_model.delete(&self.db).await?;
 
         Ok(())

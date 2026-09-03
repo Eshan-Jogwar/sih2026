@@ -46,7 +46,7 @@ async fn main() {
     let manager = Arc::new(DocumentManager::new(db, storage));
 
     // Build router
-    let app = router::document_router::create_router(manager);
+    let app = router::create_router(manager);
 
     // Start server
     let addr = format!("{}:{}", server_host, server_port);

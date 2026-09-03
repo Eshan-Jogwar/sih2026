@@ -75,6 +75,14 @@ Represents the current state of a document in the system:
 | `created_at` | `string` (ISO 8601) | Timestamp with timezone of document creation. |
 | `updated_at` | `string` (ISO 8601) | Timestamp with timezone of last status/metadata update. |
 
+### `Case` Object Schema
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `string` (UUID v4) | Unique case identifier. |
+| `name` | `string` | Name/title of the case. |
+| `created_at` | `string` (ISO 8601) | Timestamp with timezone of case creation. |
+| `updated_at` | `string` (ISO 8601) | Timestamp with timezone of last case update. |
+
 ---
 
 ## 3. Endpoints
@@ -328,6 +336,182 @@ Deletes the document from the S3 object store first, followed by deleting the re
     ```json
     { "error": "Storage error: S3 DELETE failed with status 500" }
     ```
+
+---
+
+### 3.8 Create Case
+
+#### `POST /api/cases`
+Creates a new case in the database.
+
+- **Headers**:
+  - `Content-Type: application/json`
+
+- **Request Body**:
+  | Field | Type | Required | Description |
+  | :--- | :--- | :--- | :--- |
+  | `name` | `string` | Yes | Name or title of the case (non-empty). |
+
+- **Request Example**:
+  ```json
+  {
+    "name": "Financial Fraud Investigation"
+  }
+  ```
+
+- **Success Response**:
+  - Status: `201 Created`
+  - Body:
+    ```json
+    {
+      "id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      "name": "Financial Fraud Investigation",
+      "created_at": "2026-09-03T19:30:00+05:30",
+      "updated_at": "2026-09-03T19:30:00+05:30"
+    }
+    ```
+
+- **Error Responses**:
+  - `400 Bad Request`: Case name is empty.
+    ```json
+    { "error": "Case name cannot be empty" }
+    ```
+  - `500 Internal Server Error`: Database insertion failure.
+
+---
+
+### 3.9 List Cases
+
+#### `GET /api/cases`
+Retrieves a list of all cases in the database.
+
+- **Request**:
+  - Headers: None required
+  - Body: None
+
+- **Success Response**:
+  - Status: `200 OK`
+  - Body:
+    ```json
+    [
+      {
+        "id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+        "name": "Financial Fraud Investigation",
+        "created_at": "2026-09-03T19:30:00+05:30",
+        "updated_at": "2026-09-03T19:30:00+05:30"
+      }
+    ]
+    ```
+
+---
+
+### 3.10 Get Case Details
+
+#### `GET /api/cases/{id}`
+Retrieves metadata for a specific case by its ID.
+
+- **Path Parameters**:
+  - `id` (`string`, UUID): Unique identifier of the case.
+
+- **Request Body**: None
+
+- **Success Response**:
+  - Status: `200 OK`
+  - Body:
+    ```json
+    {
+      "id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      "name": "Financial Fraud Investigation",
+      "created_at": "2026-09-03T19:30:00+05:30",
+      "updated_at": "2026-09-03T19:30:00+05:30"
+    }
+    ```
+
+- **Error Responses**:
+  - `404 Not Found`:
+    ```json
+    { "error": "Case a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11 not found" }
+    ```
+
+---
+
+### 3.11 Update Case
+
+#### `PUT /api/cases/{id}`
+Updates a case's name.
+
+- **Path Parameters**:
+  - `id` (`string`, UUID): Unique identifier of the case.
+
+- **Headers**:
+  - `Content-Type: application/json`
+
+- **Request Body**:
+  | Field | Type | Required | Description |
+  | :--- | :--- | :--- | :--- |
+  | `name` | `string` | Yes | New name or title for the case. |
+
+- **Request Example**:
+  ```json
+  {
+    "name": "Financial Fraud Investigation - Closed"
+  }
+  ```
+
+- **Success Response**:
+  - Status: `200 OK`
+  - Body:
+    ```json
+    {
+      "id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      "name": "Financial Fraud Investigation - Closed",
+      "created_at": "2026-09-03T19:30:00+05:30",
+      "updated_at": "2026-09-03T19:35:10+05:30"
+    }
+    ```
+
+- **Error Responses**:
+  - `400 Bad Request`: Empty name.
+  - `404 Not Found`: Case does not exist.
+
+---
+
+### 3.12 Delete Case
+
+#### `DELETE /api/cases/{id}`
+Deletes a case by its ID. PostgreSQL schema's `ON DELETE CASCADE` removes all associated documents.
+
+- **Path Parameters**:
+  - `id` (`string`, UUID): Unique identifier of the case.
+
+- **Request Body**: None
+
+- **Success Response**:
+  - Status: `200 OK`
+  - Body:
+    ```json
+    {
+      "message": "Case a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11 deleted"
+    }
+    ```
+
+- **Error Responses**:
+  - `404 Not Found`: Case not found.
+  - `500 Internal Server Error`: Database deletion error.
+
+---
+
+### 3.13 List Documents for a Case
+
+#### `GET /api/cases/{id}/documents`
+Convenience route to list all documents associated with a specific case. (Equivalent to `GET /api/documents?case_id={id}`).
+
+- **Path Parameters**:
+  - `id` (`string`, UUID): Unique identifier of the case.
+
+- **Success Response**:
+  - Status: `200 OK`
+  - Body: Array of `Document` objects (see `Document` schema).
 
 ---
 
