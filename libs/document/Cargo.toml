@@ -9,3 +9,4 @@ serde_json = { workspace = true }
 async-trait = { workspace = true }
 rusty-s3 = { workspace = true }
 reqwest = { workspace = true }
+thiserror = { workspace = true }

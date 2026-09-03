@@ -11,7 +11,7 @@ async fn main() {
         "EhQKgnFnOlVs747cimPso5DRUhFzBC2VcYCZm6if".to_string(),
     );
 
-    let key = "test/hello.txt";
+    let key = "a.png";
 
     let put_url = store
         .presigned_put_url(key, Duration::from_secs(300))
@@ -26,4 +26,3 @@ async fn main() {
     println!("PUT URL:\n{}\n", put_url);
     println!("GET URL:\n{}\n", get_url);
 }
-
