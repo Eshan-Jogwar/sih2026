@@ -14,6 +14,35 @@ impl MigrationName for Migration {
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        // --- case ---
+        manager
+            .create_table(
+                Table::create()
+                    .table(Case::Table)
+                    .col(
+                        ColumnDef::new(Case::Id)
+                            .uuid()
+                            .primary_key()
+                            .default(Expr::cust("gen_random_uuid()")),
+                    )
+                    .col(ColumnDef::new(Case::Name).string().not_null())
+                    .col(
+                        ColumnDef::new(Case::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .col(
+                        ColumnDef::new(Case::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // --- document ---
         manager
             .create_type(
                 Type::create()
@@ -85,11 +114,15 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        // reverse order: document depends on case, so drop document first
         manager
             .drop_table(Table::drop().table(Document::Table).to_owned())
             .await?;
         manager
             .drop_type(Type::drop().name(DocumentStatus::Type).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(Case::Table).to_owned())
             .await
     }
 }
@@ -114,6 +147,9 @@ pub enum DocumentStatus {
 pub enum Case {
     Table,
     Id,
+    Name,
+    CreatedAt,
+    UpdatedAt,
 }
 
 #[derive(DeriveIden)]

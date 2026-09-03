@@ -1,5 +1,5 @@
 [workspace]
-members = ["cmd/server","libs/document", "migration"]
+members = ["cmd/server","libs/document", "libs/orm", "migration"]
 
 [workspace.dependencies]
 document = { path = "libs/document" }
