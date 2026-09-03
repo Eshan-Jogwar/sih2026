@@ -3,11 +3,20 @@ members = ["cmd/server","libs/document", "libs/orm", "migration"]
 
 [workspace.dependencies]
 document = { path = "libs/document" }
+orm = { path = "libs/orm" }
 
-uuid = "1.26.0"
+uuid = { version = "1.26.0", features = ["v4", "serde"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.151"
 async-trait = "0.1.92"
 rusty-s3 = "0.10.2"
 reqwest = { version = "0.12", features = ["rustls-tls"] }
 thiserror = "2"
 tokio = { version = "1.53.1", features = ["full"] }
+sea-orm = { version = "2.0", features = ["runtime-tokio-rustls", "sqlx-postgres"] }
+dotenvy = "0.15"
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+chrono = { version = "0.4", features = ["serde"] }

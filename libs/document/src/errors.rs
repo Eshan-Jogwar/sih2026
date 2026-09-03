@@ -10,4 +10,10 @@ pub enum DocumentErrors {
 
     #[error("Network error: {0}")]
     NetworkError(#[from] reqwest::Error),
+
+    #[error("Database error: {0}")]
+    DatabaseError(#[from] sea_orm::DbErr),
+
+    #[error("Not found: {0}")]
+    NotFound(String),
 }

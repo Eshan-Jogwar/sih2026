@@ -6,7 +6,11 @@ edition = "2024"
 [dependencies]
 uuid = { workspace = true }
 serde_json = { workspace = true }
+serde = { workspace = true }
 async-trait = { workspace = true }
 rusty-s3 = { workspace = true }
 reqwest = { workspace = true }
 thiserror = { workspace = true }
+sea-orm = { workspace = true }
+orm = { workspace = true }
+chrono = { workspace = true }
