@@ -167,6 +167,11 @@ async fn delete_document_handler(
     ))
 }
 
+/// GET /health
+async fn health_check_handler() -> impl IntoResponse {
+    (StatusCode::OK, "ok")
+}
+
 // ---------------------------------------------------------------------------
 // Router constructor
 // ---------------------------------------------------------------------------
@@ -179,6 +184,8 @@ pub fn create_router(state: AppState) -> Router {
         .allow_headers(Any);
 
     Router::new()
+        .route("/health", get(health_check_handler))
+        .route("/api/health", get(health_check_handler))
         .route("/api/documents/upload/initiate", post(initiate_upload_handler))
         .route("/api/documents/upload/confirm", post(confirm_upload_handler))
         .route("/api/documents/{id}/download", get(download_handler))
