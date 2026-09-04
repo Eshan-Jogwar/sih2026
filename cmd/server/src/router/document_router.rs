@@ -60,9 +60,7 @@ async fn confirm_upload_handler(
     State(manager): State<AppState>,
     Json(req): Json<ConfirmUploadRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let doc: DocumentResponse = manager
-        .confirm_upload(req.document_id, req.success)
-        .await?;
+    let doc: DocumentResponse = manager.confirm_upload(req.document_id, req.success).await?;
 
     Ok((StatusCode::OK, Json(doc)))
 }
@@ -74,10 +72,7 @@ async fn download_handler(
 ) -> Result<impl IntoResponse, AppError> {
     let download_url = manager.get_download_url(id).await?;
 
-    Ok((
-        StatusCode::OK,
-        Json(DownloadUrlResponse { download_url }),
-    ))
+    Ok((StatusCode::OK, Json(DownloadUrlResponse { download_url })))
 }
 
 /// GET /api/documents/:id
@@ -119,8 +114,14 @@ async fn delete_document_handler(
 
 pub fn create_router(state: AppState) -> Router {
     Router::new()
-        .route("/api/documents/upload/initiate", post(initiate_upload_handler))
-        .route("/api/documents/upload/confirm", post(confirm_upload_handler))
+        .route(
+            "/api/documents/upload/initiate",
+            post(initiate_upload_handler),
+        )
+        .route(
+            "/api/documents/upload/confirm",
+            post(confirm_upload_handler),
+        )
         .route("/api/documents/{id}/download", get(download_handler))
         .route(
             "/api/documents/{id}",

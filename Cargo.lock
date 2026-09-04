@@ -2750,6 +2750,7 @@ dependencies = [
  "document",
  "dotenvy",
  "orm",
+ "reqwest",
  "sea-orm",
  "serde",
  "serde_json",
