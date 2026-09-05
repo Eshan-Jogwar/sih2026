@@ -1,9 +1,10 @@
 use async_trait::async_trait;
+use orm::entity::document;
 use serde_json::Value;
 use uuid::Uuid;
 
 use crate::{document::base::Document, errors::DocumentErrors, storage::object_store::ObjectStore};
-use sea_orm::DatabaseConnection;
+use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrait};
 
 pub struct Image<O: ObjectStore> {
     id: Uuid,
@@ -30,6 +31,16 @@ impl<O: ObjectStore> Document for Image<O> {
         json: Value,
         db: &DatabaseConnection,
     ) -> Result<(), DocumentErrors> {
+        let result = document::Entity::find_by_id(self.id()).one(db).await;
+        let result = result.map_err(DocumentErrors::DatabaseError)?;
+        if result.is_none() {
+            return Err(DocumentErrors::NotFound(String::from("did not found the image")));
+        }
+        let result = result.unwrap();
+        let mut active_modal: document::ActiveModel = result.into();
+        active_modal.extracted_information = Set(Some(json));
+        active_modal.update(db).await.map_err(DocumentErrors::DatabaseError)?;
+
         Ok(())
     }
 }

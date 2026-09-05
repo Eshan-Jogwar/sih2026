@@ -1,6 +1,7 @@
 use async_trait::async_trait;
+use orm::entity::document;
 use reqwest::Url;
-use sea_orm::DatabaseConnection;
+use sea_orm::{DatabaseConnection, EntityTrait, QueryFilter};
 use serde_json::json;
 
 use crate::{
@@ -26,7 +27,16 @@ impl DocumentProcessor for FirOcr {
     ) -> Result<(), DocumentErrors> {
         let file = doc.fetch().await?;
         let text = self.call_api_get_text(file).await;
-        doc.update_extracted_information(json!(text), db).await;
+        doc.update_extracted_information(json!(text), db).await?;
         Ok(())
+    }
+
+    async fn cron_fuc(
+        db: &DatabaseConnection
+    ) {
+        let documents = document::Entity::find()
+        .filter(document::Column::ExtractedInformation.is_null())
+        .all(db)
+        .await?;
     }
 }
