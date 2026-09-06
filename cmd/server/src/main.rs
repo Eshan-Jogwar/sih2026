@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use document::{
-    document_manager::DocumentManager,
-    storage::s3_object_store::S3ObjectStore,
-};
+use document::{document_manager::DocumentManager, storage::s3_object_store::S3ObjectStore};
 use sea_orm::Database;
 
 mod router;
@@ -11,7 +8,7 @@ mod router;
 #[tokio::main]
 async fn main() {
     // Load .env
-    dotenvy::dotenv().expect("Failed to load .env file");
+    let _ = dotenvy::dotenv();
 
     // Init tracing
     tracing_subscriber::fmt::init();
@@ -56,7 +53,5 @@ async fn main() {
         .await
         .expect("Failed to bind to address");
 
-    axum::serve(listener, app)
-        .await
-        .expect("Server error");
+    axum::serve(listener, app).await.expect("Server error");
 }
