@@ -5,7 +5,7 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
-use document::document_manager::{DocumentResponse, InitiateUploadResponse};
+use document::document_manager::{DocumentResponse, DocumentType, InitiateUploadResponse};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -21,7 +21,7 @@ pub struct InitiateUploadRequest {
     pub description: String,
     pub file_name: String,
     pub case_id: Uuid,
-    pub document_type: orm::entity::sea_orm_active_enums::DocumentType,
+    pub document_type: DocumentType,
 }
 
 #[derive(Debug, Deserialize)]

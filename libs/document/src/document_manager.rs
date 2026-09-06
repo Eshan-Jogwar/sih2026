@@ -17,6 +17,35 @@ use crate::storage::s3_object_store::S3ObjectStore;
 // DTOs (Data Transfer Objects)
 // ---------------------------------------------------------------------------
 
+/// Supported document types for upload and processing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentType {
+    Image,
+    Text,
+    Voice,
+}
+
+impl From<DocumentType> for orm::entity::sea_orm_active_enums::DocumentType {
+    fn from(t: DocumentType) -> Self {
+        match t {
+            DocumentType::Image => orm::entity::sea_orm_active_enums::DocumentType::Image,
+            DocumentType::Text => orm::entity::sea_orm_active_enums::DocumentType::Text,
+            DocumentType::Voice => orm::entity::sea_orm_active_enums::DocumentType::Voice,
+        }
+    }
+}
+
+impl From<orm::entity::sea_orm_active_enums::DocumentType> for DocumentType {
+    fn from(t: orm::entity::sea_orm_active_enums::DocumentType) -> Self {
+        match t {
+            orm::entity::sea_orm_active_enums::DocumentType::Image => DocumentType::Image,
+            orm::entity::sea_orm_active_enums::DocumentType::Text => DocumentType::Text,
+            orm::entity::sea_orm_active_enums::DocumentType::Voice => DocumentType::Voice,
+        }
+    }
+}
+
 /// Response returned when a new upload is initiated.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InitiateUploadResponse {
@@ -42,8 +71,6 @@ pub struct DocumentResponse {
 
 impl From<DocumentModel> for DocumentResponse {
     fn from(m: DocumentModel) -> Self {
-        use orm::entity::sea_orm_active_enums::DocumentType;
-
         let status = match m.status {
             DocumentStatus::Pending => "pending",
             DocumentStatus::Processing => "processing",
@@ -51,7 +78,7 @@ impl From<DocumentModel> for DocumentResponse {
             DocumentStatus::Failed => "failed",
             DocumentStatus::Finish => "finish",
         };
-        let document_type = match m.r#type {
+        let document_type = match DocumentType::from(m.r#type) {
             DocumentType::Image => "image",
             DocumentType::Text => "text",
             DocumentType::Voice => "voice",
@@ -125,7 +152,7 @@ impl DocumentManager {
         description: String,
         file_name: String,
         case_id: Uuid,
-        document_type: orm::entity::sea_orm_active_enums::DocumentType,
+        document_type: impl Into<orm::entity::sea_orm_active_enums::DocumentType>,
     ) -> Result<InitiateUploadResponse, DocumentErrors> {
         let doc_id = Uuid::new_v4();
         let object_key = format!("{}/{}", doc_id, file_name);
@@ -137,7 +164,7 @@ impl DocumentManager {
             title: Set(title),
             description: Set(description),
             status: Set(DocumentStatus::Pending),
-            r#type: Set(document_type),
+            r#type: Set(document_type.into()),
             object_key: Set(object_key.clone()),
             extracted_information: Set(None),
             case_id: Set(case_id),
