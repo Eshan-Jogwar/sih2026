@@ -1,6 +1,6 @@
 # Document Management Service - API Documentation
 
-This service provides an API for document storage orchestration, presigned S3 upload/download lifecycle management, and metadata persistence using PostgreSQL and S3-compatible object storage (e.g., AWS S3, MinIO).
+This service provides an API for document storage orchestration, presigned S3 upload/download lifecycle management, and metadata persistence using PostgreSQL and S3-compatible object storage (e.g., Supabase Storage, AWS S3, MinIO).
 
 ---
 
