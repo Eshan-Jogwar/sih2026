@@ -42,6 +42,16 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+
+        manager.create_type(
+            Type::create()
+                .as_enum(DocumentType::Type)
+                .values([
+                    DocumentType::Image,
+                    DocumentType::Text,
+                    DocumentType::Voice
+                ]).to_owned()
+        ).await?;
         // --- document ---
         manager
             .create_type(
@@ -76,6 +86,7 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default("pending"),
                     )
+                    .col(ColumnDef::new(Document::Type).custom(DocumentType::Type).not_null().default("image"))
                     .col(ColumnDef::new(Document::ObjectKey).string().not_null())
                     .col(ColumnDef::new(Document::ExtractedInformation).json())
                     .col(ColumnDef::new(Document::CaseId).uuid().not_null())
@@ -144,6 +155,18 @@ pub enum DocumentStatus {
 }
 
 #[derive(DeriveIden)]
+pub enum DocumentType {
+    #[sea_orm(iden = "document_type")]
+    Type,
+    #[sea_orm(iden = "image")]
+    Image,
+    #[sea_orm(iden = "text")]
+    Text,
+    #[sea_orm(iden = "voice")]
+    Voice,
+}
+
+#[derive(DeriveIden)]
 pub enum Case {
     Table,
     Id,
@@ -160,6 +183,7 @@ pub enum Document {
     Description,
     Status,
     ObjectKey,
+    Type,
     ExtractedInformation,
     CaseId,
     CreatedAt,
