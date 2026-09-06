@@ -62,6 +62,12 @@ Represents the current state of a document in the system:
 - `"failed"`: Upload failed, cancelled by client, or failed validation.
 - `"finish"`: Terminal state after post-upload processing completes.
 
+### `DocumentType`
+Categorises the kind of content a document contains:
+- `"image"`: Image-based document (scanned pages, photographs, etc.).
+- `"text"`: Text-based document (typed reports, transcripts, etc.).
+- `"voice"`: Audio/voice recording.
+
 ### `Document` Object Schema
 | Field | Type | Description |
 | :--- | :--- | :--- |
@@ -69,6 +75,7 @@ Represents the current state of a document in the system:
 | `title` | `string` | Display title for the document. |
 | `description` | `string` | Brief description of the document contents. |
 | `status` | `string` (`DocumentStatus`) | Current lifecycle state (`pending`, `processing`, `success`, `failed`, `finish`). |
+| `document_type` | `string` (`DocumentType`) | Content category of the document (`image`, `text`, `voice`). |
 | `object_key` | `string` | Storage path in S3 bucket (Format: `{document_id}/{file_name}`). |
 | `extracted_information` | `object` or `null` | JSON payload containing OCR or parsing outputs if available. |
 | `case_id` | `string` (UUID v4) | Foreign key identifier of the parent case. |
@@ -123,6 +130,7 @@ Initiates a new document upload session. Creates a record in the database with s
   | `description` | `string` | Yes | Brief description of the document. |
   | `file_name` | `string` | Yes | Original file name including extension (e.g., `contract.pdf`). |
   | `case_id` | `string` (UUID) | Yes | Existing case ID this document belongs to. |
+  | `document_type` | `string` (`DocumentType`) | Yes | Content category: `"image"`, `"text"`, or `"voice"`. |
 
 - **Request Example**:
   ```json
@@ -130,7 +138,8 @@ Initiates a new document upload session. Creates a record in the database with s
     "title": "Police Report",
     "description": "Scanned incident report from the precinct",
     "file_name": "incident_report_2026.pdf",
-    "case_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+    "case_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+    "document_type": "image"
   }
   ```
 
@@ -190,6 +199,7 @@ Called by the client application after uploading the binary file directly to S3.
       "title": "Police Report",
       "description": "Scanned incident report from the precinct",
       "status": "success",
+      "document_type": "image",
       "object_key": "550e8400-e29b-41d4-a716-446655440000/incident_report_2026.pdf",
       "extracted_information": null,
       "case_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
@@ -257,6 +267,7 @@ Retrieves document metadata, current status, S3 object key, and extracted inform
       "title": "Police Report",
       "description": "Scanned incident report from the precinct",
       "status": "success",
+      "document_type": "image",
       "object_key": "550e8400-e29b-41d4-a716-446655440000/incident_report_2026.pdf",
       "extracted_information": null,
       "case_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
@@ -297,6 +308,7 @@ Lists documents from the database. Optionally filters by `case_id`.
         "title": "Police Report",
         "description": "Scanned incident report from the precinct",
         "status": "success",
+        "document_type": "image",
         "object_key": "550e8400-e29b-41d4-a716-446655440000/incident_report_2026.pdf",
         "extracted_information": null,
         "case_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",

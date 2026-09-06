@@ -21,6 +21,7 @@ pub struct InitiateUploadRequest {
     pub description: String,
     pub file_name: String,
     pub case_id: Uuid,
+    pub document_type: orm::entity::sea_orm_active_enums::DocumentType,
 }
 
 #[derive(Debug, Deserialize)]
@@ -49,7 +50,7 @@ async fn initiate_upload_handler(
     Json(req): Json<InitiateUploadRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let response: InitiateUploadResponse = manager
-        .initiate_upload(req.title, req.description, req.file_name, req.case_id)
+        .initiate_upload(req.title, req.description, req.file_name, req.case_id, req.document_type)
         .await?;
 
     Ok((StatusCode::OK, Json(response)))

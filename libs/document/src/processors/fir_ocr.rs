@@ -1,11 +1,11 @@
 use async_trait::async_trait;
-use orm::entity::document;
+use orm::entity::{document, sea_orm_active_enums::DocumentType};
 use reqwest::Url;
-use sea_orm::{DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde_json::json;
 
 use crate::{
-    document::base::Document, errors::DocumentErrors, processors::base::DocumentProcessor,
+    document::{base::Document, image::Image}, errors::DocumentErrors, processors::base::DocumentProcessor, storage::s3_object_store::S3ObjectStore,
 };
 
 pub struct FirOcr {
@@ -32,11 +32,22 @@ impl DocumentProcessor for FirOcr {
     }
 
     async fn cron_fuc(
-        db: &DatabaseConnection
+        &self,
+        db: &DatabaseConnection,
+        store: &S3ObjectStore
     ) {
         let documents = document::Entity::find()
-        .filter(document::Column::ExtractedInformation.is_null())
-        .all(db)
-        .await?;
+            .filter(document::Column::ExtractedInformation.is_null())
+            .filter(document::Column::Type.eq(DocumentType::Image))
+            .all(db)
+            .await;
+
+        if documents.is_ok() {
+            let documents = documents.unwrap();
+            for model in documents {
+                self.process(Image {}, db);
+            }
+        }
+
     }
 }

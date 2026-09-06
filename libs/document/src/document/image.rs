@@ -12,6 +12,10 @@ pub struct Image<O: ObjectStore> {
     storage: O,
 }
 
+impl<O: ObjectStore> Image<O> {
+
+}
+
 #[async_trait]
 impl<O: ObjectStore> Document for Image<O> {
     fn id(&self) -> Uuid {

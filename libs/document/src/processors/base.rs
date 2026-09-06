@@ -1,7 +1,7 @@
 use crate::{document::base::Document, errors::DocumentErrors};
 use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
-
+use crate::storage::s3_object_store::S3ObjectStore;
 #[async_trait]
 pub trait DocumentProcessor: Send + Sync {
     async fn process(
@@ -10,5 +10,5 @@ pub trait DocumentProcessor: Send + Sync {
         db: &DatabaseConnection,
     ) -> Result<(), DocumentErrors>;
 
-    async fn cron_fuc(db: &DatabaseConnection);
+    async fn cron_fuc(db: &DatabaseConnection, store: &S3ObjectStore);
 }

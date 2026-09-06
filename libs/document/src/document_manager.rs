@@ -32,6 +32,7 @@ pub struct DocumentResponse {
     pub title: String,
     pub description: String,
     pub status: String,
+    pub document_type: String,
     pub object_key: String,
     pub extracted_information: Option<serde_json::Value>,
     pub case_id: Uuid,
@@ -41,6 +42,8 @@ pub struct DocumentResponse {
 
 impl From<DocumentModel> for DocumentResponse {
     fn from(m: DocumentModel) -> Self {
+        use orm::entity::sea_orm_active_enums::DocumentType;
+
         let status = match m.status {
             DocumentStatus::Pending => "pending",
             DocumentStatus::Processing => "processing",
@@ -48,11 +51,17 @@ impl From<DocumentModel> for DocumentResponse {
             DocumentStatus::Failed => "failed",
             DocumentStatus::Finish => "finish",
         };
+        let document_type = match m.r#type {
+            DocumentType::Image => "image",
+            DocumentType::Text => "text",
+            DocumentType::Voice => "voice",
+        };
         Self {
             id: m.id,
             title: m.title,
             description: m.description,
             status: status.to_string(),
+            document_type: document_type.to_string(),
             object_key: m.object_key,
             extracted_information: m.extracted_information,
             case_id: m.case_id,
@@ -116,6 +125,7 @@ impl DocumentManager {
         description: String,
         file_name: String,
         case_id: Uuid,
+        document_type: orm::entity::sea_orm_active_enums::DocumentType,
     ) -> Result<InitiateUploadResponse, DocumentErrors> {
         let doc_id = Uuid::new_v4();
         let object_key = format!("{}/{}", doc_id, file_name);
@@ -127,6 +137,7 @@ impl DocumentManager {
             title: Set(title),
             description: Set(description),
             status: Set(DocumentStatus::Pending),
+            r#type: Set(document_type),
             object_key: Set(object_key.clone()),
             extracted_information: Set(None),
             case_id: Set(case_id),
