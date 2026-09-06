@@ -9,6 +9,4 @@ pub trait DocumentProcessor: Send + Sync {
         doc: impl Document,
         db: &DatabaseConnection,
     ) -> Result<(), DocumentErrors>;
-
-    async fn cron_fuc(db: &DatabaseConnection, store: &S3ObjectStore);
 }

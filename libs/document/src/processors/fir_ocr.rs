@@ -31,23 +31,23 @@ impl DocumentProcessor for FirOcr {
         Ok(())
     }
 
-    async fn cron_fuc(
-        &self,
-        db: &DatabaseConnection,
-        store: &S3ObjectStore
-    ) {
-        let documents = document::Entity::find()
-            .filter(document::Column::ExtractedInformation.is_null())
-            .filter(document::Column::Type.eq(DocumentType::Image))
-            .all(db)
-            .await;
+    // async fn cron_fuc(
+    //     &self,
+    //     db: &DatabaseConnection,
+    //     store: &S3ObjectStore
+    // ) {
+    //     let documents = document::Entity::find()
+    //         .filter(document::Column::ExtractedInformation.is_null())
+    //         .filter(document::Column::Type.eq(DocumentType::Image))
+    //         .all(db)
+    //         .await;
 
-        if documents.is_ok() {
-            let documents = documents.unwrap();
-            for model in documents {
-                self.process(Image {}, db);
-            }
-        }
+    //     // if documents.is_ok() {
+    //     //     let documents = documents.unwrap();
+    //     //     for model in documents {
+    //     //         self.process(Image {}, db);
+    //     //     }
+    //     // }
 
-    }
+    // }
 }
