@@ -5,6 +5,7 @@ use rusty_s3::{Bucket, Credentials, S3Action, UrlStyle};
 
 use crate::{errors::DocumentErrors, storage::object_store::ObjectStore};
 
+#[derive(Clone)]
 pub struct S3ObjectStore {
     bucket: Bucket,
     credentials: Credentials,

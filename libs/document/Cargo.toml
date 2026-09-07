@@ -14,3 +14,6 @@ thiserror = { workspace = true }
 sea-orm = { workspace = true }
 orm = { workspace = true }
 chrono = { workspace = true }
+base64 = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

@@ -13,7 +13,9 @@ pub struct Image<O: ObjectStore> {
 }
 
 impl<O: ObjectStore> Image<O> {
-
+    pub fn new(id: Uuid, key: String, storage: O) -> Self {
+        Self { id, key, storage }
+    }
 }
 
 #[async_trait]

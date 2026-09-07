@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
-use document::{document_manager::DocumentManager, storage::s3_object_store::S3ObjectStore};
+use document::{
+    document_manager::DocumentManager,
+    processors::{base::DocumentProcessor, openrouter::OpenRouter},
+    storage::s3_object_store::S3ObjectStore,
+};
 use sea_orm::Database;
 
 mod router;
@@ -39,8 +43,31 @@ async fn main() {
         s3_secret_key,
     );
 
+    // Clone db and storage for the background processor
+    let processor_db = db.clone();
+    let processor_storage = storage.clone();
+
     // Create document manager
     let manager = Arc::new(DocumentManager::new(db, storage));
+
+    // Spawn background document processor cron
+    tokio::spawn(async move {
+        let api_key = std::env::var("OPENROUTER_API_KEY")
+            .expect("OPENROUTER_API_KEY must be set");
+        let processor = OpenRouter::new(
+            api_key,
+            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free".to_string(),
+        );
+
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            tracing::info!("Running document processing cron...");
+            if let Err(e) = processor.cron_func(&processor_db, &processor_storage).await {
+                tracing::error!("Document processing cron error: {}", e);
+            }
+        }
+    });
 
     // Build router
     let app = router::create_router(manager);
