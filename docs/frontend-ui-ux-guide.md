@@ -24,7 +24,9 @@ The Document Management Service is an evidentiary and investigative document orc
  └── Main Workspace
       ├── Route: `/cases` (Case Directory & Aggregate Analytics)
       ├── Route: `/cases/:caseId` (Case Workspace: Evidentiary Feed, Filter Matrix, File Ingestion Zone)
-      └── Route: `/cases/:caseId/documents/:docId` (Deep Inspector: Split View Viewer + OCR / Metadata Drawer)
+      ├── Route: `/cases/:caseId/graph` (Case Knowledge Graph & GNN Conspiracy Inspector)
+      ├── Route: `/cases/:caseId/documents/:docId` (Deep Inspector: Split View Viewer + OCR / Metadata Drawer)
+      └── Route: `/syndicate-graph` (Global Multi-Case Crime Syndicate Knowledge Graph)
 ```
 
 ### Route Map & View Hierarchy
@@ -32,7 +34,9 @@ The Document Management Service is an evidentiary and investigative document orc
 | :--- | :--- | :--- |
 | `/cases` | Case portfolio overview | `CaseGrid`, `NewCaseModal`, `CaseStatsWidget`, `RecentDocsFeed` |
 | `/cases/:caseId` | Primary investigation workspace | `CaseHeader`, `DocumentFilterBar`, `DocumentTable` / `DocumentGrid`, `DirectUploadDropzone` |
+| `/cases/:caseId/graph` | Case evidentiary graph + GNN predictions | `CytoscapeCanvas`, `GraphFilterToolbar`, `HypothesisDrawer`, `TriggerGnnButton` |
 | `/cases/:caseId/documents/:docId` | Evidentiary verification & OCR analysis | `MediaViewer` (Zoomable Image / Audio Player / Text), `ExtractedInfoDrawer`, `MetadataPanel`, `DownloadAction` |
+| `/syndicate-graph` | Global cross-case syndicate analysis | `GlobalCytoscapeCanvas`, `ClusterFilter`, `CrossCaseHypothesisTable`, `MetricsRibbon` |
 
 ---
 
@@ -58,6 +62,17 @@ The frontend should implement an adaptive, high-contrast, clean aesthetic (Dark-
   - `image`: Cyan/Sky (`Image` icon, `bg-sky-500/10 text-sky-400`)
   - `text`: Purple (`FileText` icon, `bg-purple-500/10 text-purple-400`)
   - `voice`: Amber/Yellow (`Mic` / `AudioWaveform` icon, `bg-amber-500/10 text-amber-400`)
+- **Graph Canvas Node & Edge Theming Tokens**:
+  - **Node Palette (by Entity Type)**:
+    - `person`: Sky Blue (`#38bdf8`, fill: `#0f172a`, border: `#38bdf8`)
+    - `phone`: Emerald Green (`#34d399`, fill: `#064e3b`, border: `#34d399`)
+    - `financial_account`: Amber Gold (`#fbbf24`, fill: `#78350f`, border: `#fbbf24`)
+    - `object` / Vehicle: Purple (`#c084fc`, fill: `#581c87`, border: `#c084fc`)
+    - `phantom_entity`: Rose/Crimson (`#f43f5e`, fill: `#881337`, border: `#f43f5e`)
+  - **Edge Palette (Evidentiary vs GNN Hypothesis)**:
+    - Evidentiary Edge: Solid Slate (`#64748b`, line-style: `solid`, width: `2px`) — Hard evidence grounded in uploaded case documents/CDRs.
+    - High-Alert GNN Hypothesis Edge: Bright Red Dashed (`#ef4444`, line-style: `dashed`, line-dash-pattern: `[6, 3]`, width: `3px`) — Probability $\ge 70\%$, urgent criminal conspiracy alert.
+    - Moderate-Alert GNN Hypothesis Edge: Amber Dashed (`#f59e0b`, line-style: `dashed`, line-dash-pattern: `[6, 3]`, width: `2.5px`) — Probability $< 70\%$, investigative lead.
 
 ---
 
@@ -118,6 +133,52 @@ When clicking a document, open a focused Split Workspace:
 
 ---
 
+### Flow D: Investigation Knowledge Graph & Conspiracy Hypothesis Analysis
+
+Investigators navigate between evidentiary document feeds and the relational Knowledge Graph (`/cases/:caseId/graph` or embedded tab).
+
+```
++---------------------------------------------------------------------------------------------------+
+| Case: FIR 101/2026 - Financial Fraud Syndicate       [Recompute Syndicate GNN ⚡] [Export Canvas]  |
++---------------------------------------------------------------------------------------------------+
+|  [Cytoscape.js Interactive Canvas - cose / cola layout]            |  [Hypothesis Inspector]      |
+|                                                                    |                              |
+|       (Rajesh Sharma) ───────solid──────> [HDFC-501004128912]      |  Target: Rajesh Sharma       |
+|              :                                                     |  Accomplice: Vikram Malhotra |
+|              : dashed (Red - 82.4%)                                |  Edge: co_conspirator       |
+|              v                                                     |  Confidence: 82.4%           |
+|       (Vikram Malhotra) <────solid─────── [Phone: 9871987654]      |  Status: Hypothesis Flagged  |
+|                                                                    |                              |
+|                                                                    |  Legal Recommendation:       |
+|                                                                    |  "Immediate interrogation    |
+|                                                                    |   under BNS Section 61.      |
+|                                                                    |   Subject routes funds via   |
+|                                                                    |   common accounts."          |
+|                                                                    |                              |
+|                                                                    |  [Mark Verified Lead]        |
++---------------------------------------------------------------------------------------------------+
+```
+
+1. **Canvas Initialization**:
+   - Fetch `GET /api/cases/:caseId/graph` (or `GET /api/gnn/graph` for global syndicate view).
+   - Feed `response.elements` directly into Cytoscape.js (`cytoscape({ container, elements: response.elements, style, layout: { name: 'cose' } })`).
+2. **Node Click Interaction**:
+   - Highlight 1-hop and 2-hop connected neighbors, dimming unselected nodes to opacity `0.15`.
+   - Open Right-Side Inspector showing entity details, badge (`Suspect`, `Candidate Associate`, `Financial Institution`), and extracted document attributes.
+3. **Edge Click Interaction**:
+   - **Evidentiary Edges (Solid `#64748b`)**: Display source document title and link to open the document viewer.
+   - **Hypothesis Edges (Dashed `#ef4444` / `#f59e0b`)**: Display the GNN Prediction Inspector showing:
+     - Predicted Relationship (`co_conspirator`, `shell_handler`)
+     - Model Probability Badge (`82.4% Confidence`)
+     - Statutory Recommendation Box (e.g. BNS Section 61 / IPC 120B)
+     - Action button to add finding to official case diary.
+4. **Trigger GNN Re-computation**:
+   - Provide a persistent button `[Recompute Syndicate GNN ⚡]` on the graph toolbar.
+   - Triggers `POST /api/gnn/trigger`.
+   - Displays toast: *"GNN collective inference running across all cases..."*, then automatically refetches the updated graph.
+
+---
+
 ## 5. API Integration Layer (TypeScript Specifications)
 
 ### TypeScript Data Models
@@ -159,6 +220,107 @@ export interface InitiateUploadResponse {
   upload_url: string;
   object_key: string;
 }
+
+export type EntityNodeType = 'person' | 'phone' | 'financial_account' | 'object' | 'phantom_entity';
+
+export interface NodeData {
+  id: string;
+  label: string;
+  type: EntityNodeType;
+  badge?: string;
+  risk_score?: number;
+  attributes?: Record<string, any>;
+}
+
+export interface CytoscapeNode {
+  data: NodeData;
+}
+
+export interface EdgeData {
+  id: string;
+  source: string;
+  target: string;
+  label: string;
+  category: 'evidentiary' | 'hypothesis';
+  is_hypothesis: boolean;
+  style: 'solid' | 'dashed';
+  color: string;
+  probability?: number;
+  recommendation?: string;
+  source_document?: string;
+}
+
+export interface CytoscapeEdge {
+  data: EdgeData;
+}
+
+export interface GraphMeta {
+  total_nodes: number;
+  total_edges: number;
+  evidentiary_edges: number;
+  predicted_edges: number;
+  last_analyzed: string;
+}
+
+export interface CytoscapeGraphResponse {
+  status: 'success';
+  case_id: string | null;
+  meta: GraphMeta;
+  elements: {
+    nodes: CytoscapeNode[];
+    edges: CytoscapeEdge[];
+  };
+}
+
+export const cytoscapeDarkStylesheet = [
+  {
+    selector: 'node',
+    style: {
+      'label': 'data(label)',
+      'color': '#f8fafc',
+      'font-size': '11px',
+      'text-valign': 'bottom',
+      'text-margin-y': 4,
+      'background-color': '#1e293b',
+      'border-width': 2,
+      'border-color': '#64748b',
+    }
+  },
+  {
+    selector: 'node[type = "person"]',
+    style: { 'border-color': '#38bdf8', 'background-color': '#0f172a' }
+  },
+  {
+    selector: 'node[type = "phone"]',
+    style: { 'border-color': '#34d399', 'background-color': '#064e3b' }
+  },
+  {
+    selector: 'node[type = "financial_account"]',
+    style: { 'border-color': '#fbbf24', 'background-color': '#78350f' }
+  },
+  {
+    selector: 'edge',
+    style: {
+      'curve-style': 'bezier',
+      'target-arrow-shape': 'triangle',
+      'label': 'data(label)',
+      'font-size': '9px',
+      'color': '#94a3b8',
+      'text-rotation': 'autorotate',
+      'line-color': 'data(color)',
+      'target-arrow-color': 'data(color)',
+      'width': 2,
+    }
+  },
+  {
+    selector: 'edge[is_hypothesis = true]',
+    style: {
+      'line-style': 'dashed',
+      'line-dash-pattern': [6, 3],
+      'width': 3,
+    }
+  }
+];
 ```
 
 ### Complete S3 Direct Upload Hook Example
@@ -261,3 +423,7 @@ export function useDirectUpload({ apiBaseUrl = 'http://localhost:8000', onSucces
 - [ ] Build `DocumentFilterBar` (filter by `case_id`, `document_type`, `status`, text search).
 - [ ] Build `SplitDocumentViewer` with Image Zoom/Pan, Audio Player, and OCR Information viewer.
 - [ ] Implement short-polling or WebSocket observer for documents transitioning from `processing` to `finish`.
+- [ ] Build `CytoscapeCanvas` component using `cytoscapeDarkStylesheet` with responsive auto-fit and zoom controls.
+- [ ] Build `HypothesisInspector` drawer displaying link probability, relationship tags, and statutory legal recommendations.
+- [ ] Implement `[Recompute Syndicate GNN ⚡]` trigger button calling `POST /api/gnn/trigger`.
+- [ ] Build `/syndicate-graph` global view for cross-case organized crime syndicate visualization.

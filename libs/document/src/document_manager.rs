@@ -136,6 +136,16 @@ impl DocumentManager {
         Self { db, storage }
     }
 
+    /// Returns a reference to the database connection.
+    pub fn db(&self) -> &DatabaseConnection {
+        &self.db
+    }
+
+    /// Returns a reference to the S3 object store.
+    pub fn storage(&self) -> &S3ObjectStore {
+        &self.storage
+    }
+
     // -----------------------------------------------------------------------
     // Document operations
     // -----------------------------------------------------------------------

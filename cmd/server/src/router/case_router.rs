@@ -34,7 +34,9 @@ async fn create_case_handler(
     State(manager): State<AppState>,
     Json(req): Json<CreateCaseRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    tracing::info!("Creating case with name='{}'", req.name);
     let case: CaseResponse = manager.create_case(req.name).await?;
+    tracing::info!("Created case id={}, name='{}'", case.id, case.name);
     Ok((StatusCode::CREATED, Json(case)))
 }
 
@@ -42,7 +44,9 @@ async fn create_case_handler(
 async fn list_cases_handler(
     State(manager): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
+    tracing::info!("Listing all cases");
     let cases: Vec<CaseResponse> = manager.list_cases().await?;
+    tracing::info!("Found {} case(s)", cases.len());
     Ok((StatusCode::OK, Json(cases)))
 }
 
@@ -51,6 +55,7 @@ async fn get_case_handler(
     State(manager): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
+    tracing::info!("Fetching case id={}", id);
     let case: CaseResponse = manager.get_case(id).await?;
     Ok((StatusCode::OK, Json(case)))
 }
@@ -61,7 +66,9 @@ async fn update_case_handler(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateCaseRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    tracing::info!("Updating case id={}, new_name='{}'", id, req.name);
     let case: CaseResponse = manager.update_case(id, req.name).await?;
+    tracing::info!("Successfully updated case id={}", id);
     Ok((StatusCode::OK, Json(case)))
 }
 
@@ -70,7 +77,9 @@ async fn delete_case_handler(
     State(manager): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
+    tracing::info!("Deleting case id={}", id);
     manager.delete_case(id).await?;
+    tracing::info!("Successfully deleted case id={}", id);
     Ok((
         StatusCode::OK,
         Json(MessageResponse {
@@ -84,7 +93,9 @@ async fn get_case_documents_handler(
     State(manager): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
+    tracing::info!("Fetching documents for case id={}", id);
     let docs: Vec<DocumentResponse> = manager.list_documents(Some(id)).await?;
+    tracing::info!("Found {} document(s) for case id={}", docs.len(), id);
     Ok((StatusCode::OK, Json(docs)))
 }
 

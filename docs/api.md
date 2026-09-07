@@ -90,6 +90,59 @@ Categorises the kind of content a document contains:
 | `created_at` | `string` (ISO 8601) | Timestamp with timezone of case creation. |
 | `updated_at` | `string` (ISO 8601) | Timestamp with timezone of last case update. |
 
+### `GnnLinkPrediction` Object Schema
+Represents a predicted hidden criminal conspiracy or syndicate link inferred by the Heterogeneous Graph Transformer (HGT) across collective multi-case data:
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `string` (UUID v4) | Unique link prediction identifier. |
+| `target_entity_id` | `string` | Primary subject/target entity ID (e.g. `ENT-PERSON-RAJESH_SHARMA`). |
+| `target_entity_type` | `string` | Entity type of the target (e.g. `person`). |
+| `candidate_entity_id` | `string` | Inferred accomplice/candidate associate ID. |
+| `candidate_entity_type`| `string` | Entity type of the candidate associate (e.g. `person`). |
+| `predicted_edge_type` | `string` | Inferred relationship type (e.g. `co_conspirator`, `shell_handler`). |
+| `link_probability` | `number` (f64, 0.0–1.0) | Neural model link probability confidence. |
+| `is_hypothesis_flagged` | `boolean` | `true` if `link_probability >= confidence_threshold`. |
+| `confidence_threshold` | `number` (f64) or `null` | Threshold applied during inference (default `0.10`). |
+| `recommendation` | `string` | Statutory/procedural legal recommendation (e.g. BNS Section 61). |
+| `created_at` | `string` (ISO 8601) | Timestamp with timezone when hypothesis was generated. |
+| `updated_at` | `string` (ISO 8601) | Timestamp with timezone when hypothesis was last updated. |
+
+*Note: The `gnn_link_prediction` table operates globally across all cases and does not contain a `case_id` foreign key.*
+
+### `CytoscapeGraphResponse` Schema (Graph Canvas DTO)
+Format ready for direct ingestion by frontend Cytoscape.js canvases:
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `status` | `string` | Execution status (`"success"`). |
+| `case_id` | `string` or `null` | Case name (for case-scoped graph) or `null` (for global graph). |
+| `meta` | `GraphMeta` | Metadata counters (`total_nodes`, `total_edges`, `evidentiary_edges`, `predicted_edges`, `last_analyzed`). |
+| `elements` | `CytoscapeElements` | Graph data containing `nodes` and `edges` arrays. |
+
+#### `CytoscapeNode.data`
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `string` | Unique entity node ID (e.g. `ENT-PERSON-RAJESH_SHARMA`, `ENT-PHONE-9871987654`). |
+| `label` | `string` | Human-readable node label. |
+| `type` | `string` | Category (`person`, `phone`, `financial_account`, `object`, `phantom_entity`). |
+| `badge` | `string` (optional) | Visual tag (e.g. `Suspect`, `Candidate Associate`, `Device`). |
+| `risk_score` | `number` (optional) | Computed risk or conspiracy probability (0.0–1.0). |
+| `attributes` | `object` (optional) | Entity attributes extracted from documents. |
+
+#### `CytoscapeEdge.data`
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `string` | Unique edge ID (e.g. `edge-case-1`, `edge-gnn-pred-...`). |
+| `source` | `string` | Source entity node ID. |
+| `target` | `string` | Target entity node ID. |
+| `label` | `string` | Edge description (e.g. `called (CDR)`, `co_conspirator (82.4%)`). |
+| `category` | `string` | `"evidentiary"` (solid documented evidence) or `"hypothesis"` (dashed GNN prediction). |
+| `is_hypothesis` | `boolean` | `false` for evidentiary edges; `true` for GNN predictions. |
+| `style` | `string` | `"solid"` for evidentiary; `"dashed"` for hypothesis. |
+| `color` | `string` | Hex color code (`#64748b` for evidentiary; `#ef4444` high alert, `#f59e0b` moderate alert). |
+| `probability` | `number` (optional) | Link probability (present on hypothesis edges). |
+| `recommendation` | `string` (optional) | Legal/procedural recommendation (present on hypothesis edges). |
+| `source_document` | `string` (optional) | Title of the source evidentiary document if applicable. |
+
 ---
 
 ## 3. Endpoints
@@ -524,6 +577,133 @@ Convenience route to list all documents associated with a specific case. (Equiva
 - **Success Response**:
   - Status: `200 OK`
   - Body: Array of `Document` objects (see `Document` schema).
+
+---
+
+### 3.14 Trigger GNN Collective Inference
+
+#### `POST /api/gnn/trigger`
+Triggers the collective multi-case GNN pipeline (`GnnProcessor::cron_func`). The server queries all documents across all cases where `extracted_information IS NOT NULL`, constructs the collective heterogeneous graph matching HGT model specifications, sends it to `POST {GNN_SERVICE_URL}/api/v1/graph/predict-conspiracy`, and persists inferred hypothesis links into the `gnn_link_prediction` database table.
+
+- **Headers**: None required
+- **Request Body**: None
+
+- **Success Response**:
+  - Status: `200 OK`
+  - Body:
+    ```json
+    {
+      "message": "GNN collective inference triggered and updated successfully"
+    }
+    ```
+
+- **Error Responses**:
+  - `500 Internal Server Error`: Database error or microservice failure.
+  - `502 Bad Gateway`: Upstream network failure connecting to `GNN_SERVICE_URL`.
+
+---
+
+### 3.15 Get Case Graph (Cytoscape.js Canvas)
+
+#### `GET /api/cases/{case_id}/graph`
+Fetches a unified evidentiary and hypothesis graph for a specific case, formatted for direct consumption by Cytoscape.js. Evidentiary relationships (e.g., CDR call records, bank transfers, co-accused FIR mentions) extracted from case documents are styled as solid lines (`#64748b`), while cross-case GNN predicted criminal conspiracy hypotheses are overlaid as dashed lines (`#ef4444` for high alert $\ge 70\%$, `#f59e0b` for moderate alert).
+
+- **Path Parameters**:
+  - `case_id` (`string`, UUID): Unique identifier of the case.
+
+- **Success Response**:
+  - Status: `200 OK`
+  - Body:
+    ```json
+    {
+      "status": "success",
+      "case_id": "FIR 101/2026",
+      "meta": {
+        "total_nodes": 8,
+        "total_edges": 9,
+        "evidentiary_edges": 6,
+        "predicted_edges": 3,
+        "last_analyzed": "2026-09-07T22:30:00+05:30"
+      },
+      "elements": {
+        "nodes": [
+          {
+            "data": {
+              "id": "ENT-PERSON-RAJESH_SHARMA",
+              "label": "RAJESH SHARMA",
+              "type": "person",
+              "badge": "Suspect",
+              "risk_score": 0.85,
+              "attributes": {
+                "source": "FIR 101"
+              }
+            }
+          },
+          {
+            "data": {
+              "id": "ENT-PERSON-VIKRAM_MALHOTRA",
+              "label": "VIKRAM MALHOTRA",
+              "type": "person",
+              "badge": "Candidate Associate",
+              "risk_score": 0.824,
+              "attributes": {}
+            }
+          }
+        ],
+        "edges": [
+          {
+            "data": {
+              "id": "edge-evidentiary-1",
+              "source": "ENT-PERSON-RAJESH_SHARMA",
+              "target": "ENT-PHONE-9871987654",
+              "label": "used_device (FIR 101)",
+              "category": "evidentiary",
+              "is_hypothesis": false,
+              "style": "solid",
+              "color": "#64748b",
+              "source_document": "FIR 101"
+            }
+          },
+          {
+            "data": {
+              "id": "edge-gnn-pred-8f4b52b2-601e-4c74-a021-f09c62394392",
+              "source": "ENT-PERSON-RAJESH_SHARMA",
+              "target": "ENT-PERSON-VIKRAM_MALHOTRA",
+              "label": "co_conspirator (82.4%)",
+              "category": "hypothesis",
+              "is_hypothesis": true,
+              "style": "dashed",
+              "color": "#ef4444",
+              "probability": 0.824,
+              "recommendation": "Recommend immediate interrogation under BNS Section 61 (Criminal Conspiracy). Subject acts as high-frequency intermediary.",
+              "source_document": null
+            }
+          }
+        ]
+      }
+    }
+    ```
+
+- **Error Responses**:
+  - `404 Not Found`: Case does not exist.
+  - `500 Internal Server Error`: Database query error.
+
+---
+
+### 3.16 Get Global Multi-Case Graph (Cytoscape.js Canvas)
+
+#### `GET /api/gnn/graph`
+Returns the global multi-case graph across all cases and documents in the entire system. It visualizes systemic criminal syndicates, shared phone numbers, recurring bank accounts, and cross-case criminal conspiracy hypotheses.
+
+- **Headers**: None required
+- **Request Body**: None
+
+- **Success Response**:
+  - Status: `200 OK`
+  - Body: Same schema as `GET /api/cases/{case_id}/graph`, with `case_id: null`.
+
+- **Error Responses**:
+  - `500 Internal Server Error`: Database query error.
 
 ---
 

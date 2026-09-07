@@ -57,14 +57,23 @@ impl DocumentProcessor for OpenRouter {
         doc: &dyn Document,
         db: &DatabaseConnection,
     ) -> Result<(), DocumentErrors> {
+        let doc_id = doc.id();
+        tracing::info!("Fetching raw document bytes from storage for doc_id={}", doc_id);
+
         // 1. Fetch raw bytes from S3
         let bytes = doc.fetch().await?;
+        let mime = doc.mime_type();
+        tracing::info!(
+            "Fetched {} bytes for doc_id={}, mime_type='{}'",
+            bytes.len(),
+            doc_id,
+            mime
+        );
 
         // 2. Base64-encode
         let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
 
         // 3. Build OpenRouter vision request
-        let mime = doc.mime_type();
         let data_url = format!("data:{};base64,{}", mime, b64);
 
         let payload = serde_json::json!({
@@ -87,6 +96,12 @@ impl DocumentProcessor for OpenRouter {
         });
 
         // 4. POST to OpenRouter
+        tracing::info!(
+            "Dispatching vision inference request for doc_id={} to OpenRouter (model: '{}')...",
+            doc_id,
+            self.model
+        );
+        let start_time = std::time::Instant::now();
         let response = self
             .client
             .post("https://openrouter.ai/api/v1/chat/completions")
@@ -96,19 +111,42 @@ impl DocumentProcessor for OpenRouter {
             .send()
             .await?;
 
+        let elapsed = start_time.elapsed();
+
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
+            tracing::error!(
+                "OpenRouter API error for doc_id={}: status={}, elapsed={:?}, body={}",
+                doc_id,
+                status,
+                elapsed,
+                body
+            );
             return Err(DocumentErrors::StorageError(format!(
                 "OpenRouter API returned {} : {}",
                 status, body
             )));
         }
 
+        tracing::info!(
+            "OpenRouter API responded for doc_id={} in {:?} with status {}",
+            doc_id,
+            elapsed,
+            response.status()
+        );
+
         // 5. Parse response
         let completion: ChatCompletionResponse = response.json().await.map_err(|e| {
+            tracing::error!("Failed to deserialize OpenRouter response JSON for doc_id={}: {}", doc_id, e);
             DocumentErrors::StorageError(format!("Failed to parse OpenRouter response: {}", e))
         })?;
+
+        tracing::debug!(
+            "OpenRouter returned {} choice(s) for doc_id={}",
+            completion.choices.len(),
+            doc_id
+        );
 
         let content = completion
             .choices
@@ -126,11 +164,29 @@ impl DocumentProcessor for OpenRouter {
             .trim_end_matches("```")
             .trim();
 
-        let extracted: serde_json::Value = serde_json::from_str(cleaned)
-            .unwrap_or_else(|_| serde_json::json!({ "raw_text": content }));
+        let extracted: serde_json::Value = match serde_json::from_str::<serde_json::Value>(cleaned) {
+            Ok(val) => {
+                if let Some(obj) = val.as_object() {
+                    let keys: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
+                    tracing::info!("Extracted structured JSON for doc_id={} with keys: {:?}", doc_id, keys);
+                } else {
+                    tracing::info!("Extracted JSON value for doc_id={}", doc_id);
+                }
+                val
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to parse model response as JSON for doc_id={}: {}. Storing as raw_text.",
+                    doc_id,
+                    e
+                );
+                serde_json::json!({ "raw_text": content })
+            }
+        };
 
         // 6. Persist extracted information
         doc.update_extracted_information(extracted, db).await?;
+        tracing::info!("Persisted extracted_information for doc_id={}", doc_id);
 
         Ok(())
     }
@@ -140,6 +196,8 @@ impl DocumentProcessor for OpenRouter {
         db: &DatabaseConnection,
         store: &S3ObjectStore,
     ) -> Result<(), DocumentErrors> {
+        tracing::debug!("Document processor cron checking for unprocessed documents...");
+
         // Query for documents that are confirmed but not yet processed
         let documents = document::Entity::find()
             .filter(document::Column::ExtractedInformation.is_null())
@@ -149,20 +207,30 @@ impl DocumentProcessor for OpenRouter {
             .map_err(DocumentErrors::DatabaseError)?;
 
         if documents.is_empty() {
+            tracing::debug!("Document processor cron: 0 unprocessed documents found.");
             return Ok(());
         }
 
-        tracing::info!("Found {} unprocessed document(s)", documents.len());
+        tracing::info!(
+            "Document processor cron: Found {} unprocessed document(s) awaiting OpenRouter processing",
+            documents.len()
+        );
 
         for model in documents {
             let doc_id = model.id;
+            tracing::info!(
+                "Processing document id={}, title='{}', case_id={}",
+                doc_id,
+                model.title,
+                model.case_id
+            );
 
             // Set status → Processing
             let mut active: document::ActiveModel = model.clone().into();
             active.status = Set(DocumentStatus::Processing);
             active.updated_at = Set(chrono::Utc::now().fixed_offset());
             if let Err(e) = active.update(db).await {
-                tracing::error!("Failed to set Processing status for {}: {}", doc_id, e);
+                tracing::error!("Failed to set Processing status for doc_id={}: {}", doc_id, e);
                 continue;
             }
 
@@ -179,7 +247,7 @@ impl DocumentProcessor for OpenRouter {
                         active.updated_at = Set(chrono::Utc::now().fixed_offset());
                         let _ = active.update(db).await;
                     }
-                    tracing::info!("Successfully processed document {}", doc_id);
+                    tracing::info!("Successfully processed document id={}", doc_id);
                 }
                 Err(e) => {
                     // Set status → Failed
@@ -189,7 +257,7 @@ impl DocumentProcessor for OpenRouter {
                         active.updated_at = Set(chrono::Utc::now().fixed_offset());
                         let _ = active.update(db).await;
                     }
-                    tracing::error!("Failed to process document {}: {}", doc_id, e);
+                    tracing::error!("Failed to process document id={}: {}", doc_id, e);
                 }
             }
         }

@@ -1,5 +1,6 @@
 pub mod case_router;
 pub mod document_router;
+pub mod gnn_router;
 
 use std::sync::Arc;
 use axum::{
@@ -10,7 +11,10 @@ use axum::{
 };
 use document::document_manager::DocumentManager;
 use serde::Serialize;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
 
 pub type AppState = Arc<DocumentManager>;
 
@@ -73,6 +77,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/health", get(health_check_handler))
         .route("/api/health", get(health_check_handler))
         .merge(document_router::create_router(state.clone()))
-        .merge(case_router::create_router(state))
+        .merge(case_router::create_router(state.clone()))
+        .merge(gnn_router::create_router(state))
         .layer(cors)
+        .layer(TraceLayer::new_for_http())
 }

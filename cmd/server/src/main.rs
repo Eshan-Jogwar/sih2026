@@ -14,8 +14,13 @@ async fn main() {
     // Load .env
     let _ = dotenvy::dotenv();
 
-    // Init tracing
-    tracing_subscriber::fmt::init();
+    // Init tracing with environment filter
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "info,server=debug,document=debug,tower_http=info".into());
+    tracing_subscriber::fmt()
+        .with_env_filter(env_filter)
+        .with_target(true)
+        .init();
 
     // Read config from env
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
@@ -32,7 +37,7 @@ async fn main() {
     let db = Database::connect(&database_url)
         .await
         .expect("Failed to connect to database");
-    tracing::info!("Database connected");
+    tracing::info!("Database connected successfully");
 
     // Create S3 object store
     let storage = S3ObjectStore::new(
@@ -50,24 +55,51 @@ async fn main() {
     // Create document manager
     let manager = Arc::new(DocumentManager::new(db, storage));
 
-    // Spawn background document processor cron
-    tokio::spawn(async move {
-        let api_key = std::env::var("OPENROUTER_API_KEY")
-            .expect("OPENROUTER_API_KEY must be set");
-        let processor = OpenRouter::new(
-            api_key,
-            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free".to_string(),
-        );
+    // Background document processor cron configuration
+    let enable_cron: bool = std::env::var("ENABLE_DOCUMENT_PROCESSOR_CRON")
+        .map(|v| {
+            let lower = v.trim().to_lowercase();
+            lower == "true" || lower == "1" || lower == "yes"
+        })
+        .unwrap_or(true);
 
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
-        loop {
-            interval.tick().await;
-            tracing::info!("Running document processing cron...");
-            if let Err(e) = processor.cron_func(&processor_db, &processor_storage).await {
-                tracing::error!("Document processing cron error: {}", e);
+    if !enable_cron {
+        tracing::info!("Document processor background cron is DISABLED (ENABLE_DOCUMENT_PROCESSOR_CRON=false).");
+    } else {
+        let cron_interval_secs: u64 = std::env::var("DOCUMENT_CRON_INTERVAL_SECS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(30);
+
+        match std::env::var("OPENROUTER_API_KEY") {
+            Ok(api_key) if !api_key.trim().is_empty() && !api_key.starts_with("your_") => {
+                let model = std::env::var("OPENROUTER_MODEL").unwrap_or_else(|_| {
+                    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free".to_string()
+                });
+                tracing::info!(
+                    "Starting background document processor cron with model '{}' (interval: {}s)...",
+                    model,
+                    cron_interval_secs
+                );
+                tokio::spawn(async move {
+                    let processor = OpenRouter::new(api_key, model);
+                    let mut interval =
+                        tokio::time::interval(std::time::Duration::from_secs(cron_interval_secs));
+                    loop {
+                        interval.tick().await;
+                        if let Err(e) = processor.cron_func(&processor_db, &processor_storage).await {
+                            tracing::error!("Document processing cron error: {}", e);
+                        }
+                    }
+                });
+            }
+            _ => {
+                tracing::warn!(
+                    "OPENROUTER_API_KEY is not set or is empty; background document processor cron will not run."
+                );
             }
         }
-    });
+    }
 
     // Build router
     let app = router::create_router(manager);

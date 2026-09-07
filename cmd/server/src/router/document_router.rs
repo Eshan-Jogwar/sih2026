@@ -49,10 +49,22 @@ async fn initiate_upload_handler(
     State(manager): State<AppState>,
     Json(req): Json<InitiateUploadRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    tracing::info!(
+        "Initiating upload: file='{}', title='{}', case_id={}, type={:?}",
+        req.file_name,
+        req.title,
+        req.case_id,
+        req.document_type
+    );
     let response: InitiateUploadResponse = manager
         .initiate_upload(req.title, req.description, req.file_name, req.case_id, req.document_type)
         .await?;
 
+    tracing::info!(
+        "Upload initiated successfully: document_id={}, object_key='{}'",
+        response.document_id,
+        response.object_key
+    );
     Ok((StatusCode::OK, Json(response)))
 }
 
@@ -61,8 +73,18 @@ async fn confirm_upload_handler(
     State(manager): State<AppState>,
     Json(req): Json<ConfirmUploadRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    tracing::info!(
+        "Confirming upload for document_id={}, success={}",
+        req.document_id,
+        req.success
+    );
     let doc: DocumentResponse = manager.confirm_upload(req.document_id, req.success).await?;
 
+    tracing::info!(
+        "Upload confirmed: document_id={}, new_status={:?}",
+        doc.id,
+        doc.status
+    );
     Ok((StatusCode::OK, Json(doc)))
 }
 
@@ -71,6 +93,7 @@ async fn download_handler(
     State(manager): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
+    tracing::info!("Generating presigned download URL for document_id={}", id);
     let download_url = manager.get_download_url(id).await?;
 
     Ok((StatusCode::OK, Json(DownloadUrlResponse { download_url })))
@@ -81,6 +104,7 @@ async fn get_document_handler(
     State(manager): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
+    tracing::info!("Fetching document id={}", id);
     let doc: DocumentResponse = manager.get_document(id).await?;
     Ok((StatusCode::OK, Json(doc)))
 }
@@ -90,7 +114,9 @@ async fn list_documents_handler(
     State(manager): State<AppState>,
     Query(params): Query<ListDocumentsQuery>,
 ) -> Result<impl IntoResponse, AppError> {
+    tracing::info!("Listing documents with filter case_id={:?}", params.case_id);
     let docs: Vec<DocumentResponse> = manager.list_documents(params.case_id).await?;
+    tracing::info!("Found {} document(s)", docs.len());
     Ok((StatusCode::OK, Json(docs)))
 }
 
@@ -99,8 +125,10 @@ async fn delete_document_handler(
     State(manager): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
+    tracing::info!("Deleting document id={}", id);
     manager.delete_document(id).await?;
 
+    tracing::info!("Successfully deleted document id={}", id);
     Ok((
         StatusCode::OK,
         Json(MessageResponse {
