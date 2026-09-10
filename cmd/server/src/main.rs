@@ -71,79 +71,34 @@ async fn main() {
             .and_then(|s| s.parse().ok())
             .unwrap_or(30);
 
-        // OpenRouter background cron commented out in favor of Police AI microservices:
-        /*
-        match std::env::var("OPENROUTER_API_KEY") {
-            Ok(api_key) if !api_key.trim().is_empty() && !api_key.starts_with("your_") => {
-                let model = std::env::var("OPENROUTER_MODEL").unwrap_or_else(|_| {
-                    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free".to_string()
-                });
+        // NVIDIA Document Processor Cron
+        match document::processors::nvidia::NvidiaKimiProcessor::from_env() {
+            Ok(nvidia_processor) => {
+                let processor = Arc::new(nvidia_processor);
                 tracing::info!(
-                    "Starting background document processor cron with model '{}' (interval: {}s)...",
-                    model,
+                    "Starting background NVIDIA document processor cron (model: '{}', interval: {}s)...",
+                    processor.model(),
                     cron_interval_secs
                 );
+
                 tokio::spawn(async move {
-                    let processor = OpenRouter::new(api_key, model);
                     let mut interval =
                         tokio::time::interval(std::time::Duration::from_secs(cron_interval_secs));
                     loop {
                         interval.tick().await;
                         if let Err(e) = processor.cron_func(&processor_db, &processor_storage).await {
-                            tracing::error!("Document processing cron error: {}", e);
+                            tracing::error!("[CRON][NVIDIA_ERROR] Document processing cron error: {}", e);
                         }
                     }
                 });
             }
-            _ => {
+            Err(e) => {
                 tracing::warn!(
-                    "OPENROUTER_API_KEY is not set or is empty; background document processor cron will not run."
+                    "NVIDIA_API_KEY is not set or invalid; background document processor cron will not run: {}",
+                    e
                 );
             }
         }
-        */
-
-        // Police AI document processors (Pipeline, OCR, NER)
-        let base_url = std::env::var("POLICE_AI_BASE_URL")
-            .unwrap_or_else(|_| "https://atharv1909--police-ai-engine-fastapi-app.modal.run".to_string());
-        tracing::info!(
-            "Starting background Police AI document processor cron (base_url: '{}', interval: {}s)...",
-            base_url,
-            cron_interval_secs
-        );
-
-        let ner_processor = Arc::new(document::processors::ner::NerProcessor::new(base_url.clone()));
-        let pipeline_processor = document::processors::pipeline::PipelineProcessor::new(
-            base_url.clone(),
-            ner_processor.clone(),
-        );
-        let ocr_processor = document::processors::ocr::OcrProcessor::new(
-            base_url,
-            ner_processor.clone(),
-        );
-
-        tokio::spawn(async move {
-            let mut interval =
-                tokio::time::interval(std::time::Duration::from_secs(cron_interval_secs));
-            loop {
-                interval.tick().await;
-
-                // 1. Pipeline processor: TrOCR + MuRIL for images
-                if let Err(e) = pipeline_processor.cron_func(&processor_db, &processor_storage).await {
-                    tracing::error!("[CRON][PIPELINE_ERROR] Document processing cron error: {}", e);
-                }
-
-                // 2. OCR processor: Standalone OCR for images
-                if let Err(e) = ocr_processor.cron_func(&processor_db, &processor_storage).await {
-                    tracing::error!("[CRON][OCR_ERROR] Document processing cron error: {}", e);
-                }
-
-                // 3. NER processor: MuRIL for text documents
-                if let Err(e) = ner_processor.cron_func(&processor_db, &processor_storage).await {
-                    tracing::error!("[CRON][NER_ERROR] Document processing cron error: {}", e);
-                }
-            }
-        });
     }
 
     // Build router
