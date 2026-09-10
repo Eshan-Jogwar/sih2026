@@ -25,7 +25,16 @@ impl<O: ObjectStore> Document for Image<O> {
     }
 
     fn mime_type(&self) -> &str {
-        "image/jpg"
+        let lower = self.key.to_lowercase();
+        if lower.ends_with(".png") {
+            "image/png"
+        } else if lower.ends_with(".webp") {
+            "image/webp"
+        } else if lower.ends_with(".gif") {
+            "image/gif"
+        } else {
+            "image/jpeg"
+        }
     }
 
     async fn fetch(&self) -> Result<Vec<u8>, DocumentErrors> {

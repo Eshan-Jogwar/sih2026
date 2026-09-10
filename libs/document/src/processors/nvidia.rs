@@ -22,65 +22,7 @@ use crate::{
 // Specialized Forensic Prompts
 // ---------------------------------------------------------------------------
 
-const IMAGE_OCR_PROMPT: &str = r#"You are an expert forensic document and crime scene evidence analysis AI.
-Analyze this document or evidence image thoroughly and extract all information into a structured JSON object.
-
-Include the following fields:
-1. "transcribed_text": Extract ALL visible and handwritten text verbatim (including Hindi/Devanagari and English), preserving paragraph structure and field labels.
-2. "summary": A concise executive summary of what this document or image shows.
-3. "document_classification": The specific type of document (e.g., "FIR", "General Diary", "Case Diary", "Forensic Photo", "Seizure Memo", "Identity Card", "Financial Slip").
-4. "entities": Extract all identifiable entities:
-   - "persons": [ {"name": "...", "role": "suspect"|"accused"|"victim"|"witness"|"informant"|"police"|"other", "alias": "..."} ]
-   - "phone_numbers": [ {"number": "...", "owner": "...", "context": "..."} ]
-   - "financial_accounts": [ {"account_number": "...", "bank": "...", "holder": "..."} ]
-   - "vehicles": [ {"registration_number": "...", "make_model": "...", "color": "..."} ]
-   - "weapons_objects": [ {"item": "...", "description": "..."} ]
-   - "locations": [ {"place": "...", "address": "...", "significance": "..."} ]
-   - "dates_times": [ {"date": "...", "time": "...", "event": "..."} ]
-   - "legal_sections": [ "e.g. BNS 61", "IPC 302" ]
-
-Ensure valid JSON output. Return ONLY the raw JSON object, without markdown formatting or code blocks."#;
-
-const TEXT_NER_PROMPT: &str = r#"You are an advanced police intelligence and legal analysis AI.
-Analyze the following document text and extract all intelligence into a structured JSON object:
-
-Include the following fields:
-1. "transcribed_text": The complete document text.
-2. "summary": An executive summary of the case facts, allegations, timeline, and key findings.
-3. "document_classification": Type of document (e.g., "FIR Copy", "Witness Statement", "Interrogation Report", "Case Diary", "Seizure Report").
-4. "entities": Extract all identifiable entities:
-   - "persons": [ {"name": "...", "role": "suspect"|"accused"|"victim"|"witness"|"informant"|"police"|"other", "alias": "..."} ]
-   - "phone_numbers": [ {"number": "...", "owner": "...", "context": "..."} ]
-   - "financial_accounts": [ {"account_number": "...", "bank": "...", "holder": "..."} ]
-   - "vehicles": [ {"registration_number": "...", "make_model": "...", "color": "..."} ]
-   - "weapons_objects": [ {"item": "...", "description": "..."} ]
-   - "locations": [ {"place": "...", "address": "...", "significance": "..."} ]
-   - "dates_times": [ {"date": "...", "time": "...", "event": "..."} ]
-   - "legal_sections": [ "e.g. BNS 61", "IPC 302" ]
-5. "conspiracy_leads": [ {"source_entity": "...", "target_entity": "...", "relationship": "...", "description": "..."} ]
-
-Ensure valid JSON output. Return ONLY the raw JSON object, without markdown formatting or code blocks."#;
-
-const VOICE_ANALYSIS_PROMPT: &str = r#"You are an acoustic and audio intelligence analyst AI.
-Analyze the following recorded conversation / transcription and extract all intelligence into a structured JSON object:
-
-Include the following fields:
-1. "transcribed_text": The complete conversation transcript with speaker attributions if present.
-2. "summary": A concise overview of the conversation, key disclosures, and operational significance.
-3. "dialogue_analysis":
-   - "speakers": [ {"speaker_id": "...", "identified_person": "...", "tone": "...", "role": "..."} ]
-   - "key_statements": [ {"speaker": "...", "statement": "...", "significance": "..."} ]
-4. "entities": Extract all identifiable entities mentioned:
-   - "persons": [ {"name": "...", "role": "suspect"|"victim"|"witness"|"associate"|"other", "alias": "..."} ]
-   - "phone_numbers": [ {"number": "...", "owner": "..."} ]
-   - "financial_accounts": [ {"account_number": "...", "bank": "...", "holder": "..."} ]
-   - "vehicles": [ {"registration_number": "...", "details": "..."} ]
-   - "weapons_objects": [ {"item": "...", "details": "..."} ]
-   - "locations": [ {"place": "...", "context": "..."} ]
-   - "dates_times": [ {"date": "...", "time": "...", "event": "..."} ]
-5. "threat_urgency_level": "low" | "medium" | "high" | "critical"
-
-Ensure valid JSON output. Return ONLY the raw JSON object, without markdown formatting or code blocks."#;
+const SYSTEM_PROMPT: &str = "whatever you can extract in json give like that";
 
 // ---------------------------------------------------------------------------
 // Response Deserialization Types
@@ -105,7 +47,7 @@ struct ChatCompletionResponse {
 // NvidiaKimiProcessor
 // ---------------------------------------------------------------------------
 
-/// Universal Document Processor powered by Moonshot AI Kimi-K3 via NVIDIA NIM.
+/// Universal Document Processor powered by NVIDIA NIM (Nemotron Omni / Kimi-K3).
 ///
 /// Handles Image (OCR & visual forensics), Text (in-depth NER & conspiracy graphs),
 /// and Voice (audio transcript analysis) documents.
@@ -149,28 +91,67 @@ impl NvidiaKimiProcessor {
     }
 
     /// Clean response string and parse into `serde_json::Value`.
+    /// Supports direct JSON objects, JSON arrays, and markdown-fenced code blocks.
     fn parse_model_json(content: &str) -> serde_json::Value {
-        let cleaned = content
-            .trim()
-            .trim_start_matches("```json")
-            .trim_start_matches("```")
-            .trim_end_matches("```")
-            .trim();
+        let trimmed = content.trim();
 
-        match serde_json::from_str::<serde_json::Value>(cleaned) {
-            Ok(val) => val,
-            Err(e) => {
-                tracing::warn!(
-                    "[NvidiaProcessor] Failed to parse model output as JSON: {}. Storing raw_text.",
-                    e
-                );
-                serde_json::json!({
-                    "raw_text": content,
-                    "transcribed_text": content,
-                    "summary": "Extracted unstructured text from document."
-                })
+        // 1. Try direct parse
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            return val;
+        }
+
+        // 2. Extract block within ```json ... ``` or ``` ... ```
+        if let Some(start) = trimmed.find("```json") {
+            let after_fence = &trimmed[start + 7..];
+            if let Some(end) = after_fence.rfind("```") {
+                let inner = after_fence[..end].trim();
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(inner) {
+                    return val;
+                }
+            }
+        } else if let Some(start) = trimmed.find("```") {
+            let after_fence = &trimmed[start + 3..];
+            if let Some(end) = after_fence.rfind("```") {
+                let inner = after_fence[..end].trim();
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(inner) {
+                    return val;
+                }
             }
         }
+
+        // 3. Extract substring between first '{' and last '}', or first '[' and last ']'
+        let first_brace = trimmed.find('{');
+        let last_brace = trimmed.rfind('}');
+        let first_bracket = trimmed.find('[');
+        let last_bracket = trimmed.rfind(']');
+
+        let candidate = match (first_brace, last_brace, first_bracket, last_bracket) {
+            (Some(fb), Some(lb), Some(fk), Some(lk)) => {
+                if fb < fk && lb > lk {
+                    Some(&trimmed[fb..=lb])
+                } else {
+                    Some(&trimmed[fk..=lk])
+                }
+            }
+            (Some(fb), Some(lb), _, _) if fb <= lb => Some(&trimmed[fb..=lb]),
+            (_, _, Some(fk), Some(lk)) if fk <= lk => Some(&trimmed[fk..=lk]),
+            _ => None,
+        };
+
+        if let Some(json_str) = candidate {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                return val;
+            }
+        }
+
+        tracing::warn!(
+            "[NvidiaProcessor] Model output was not valid JSON. Storing as raw_text."
+        );
+        serde_json::json!({
+            "raw_text": content,
+            "transcribed_text": content,
+            "summary": "Extracted unstructured text from document."
+        })
     }
 }
 
@@ -213,7 +194,7 @@ impl DocumentProcessor for NvidiaKimiProcessor {
             e
         })?;
 
-        // 3. Build payload according to document type
+        // 3. Build payload according to document type with requested system prompt
         let payload = match doc_type {
             DocumentType::Image => {
                 let mime = doc.mime_type();
@@ -224,11 +205,15 @@ impl DocumentProcessor for NvidiaKimiProcessor {
                     "model": self.model,
                     "messages": [
                         {
+                            "role": "system",
+                            "content": SYSTEM_PROMPT
+                        },
+                        {
                             "role": "user",
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": IMAGE_OCR_PROMPT
+                                    "text": "Extract all information, text, entities, and details from this image into JSON."
                                 },
                                 {
                                     "type": "image_url",
@@ -247,17 +232,16 @@ impl DocumentProcessor for NvidiaKimiProcessor {
             }
             DocumentType::Text => {
                 let text_content = String::from_utf8_lossy(&bytes);
-                let prompt = format!(
-                    "{}\n\n--- DOCUMENT CONTENT ---\n{}",
-                    TEXT_NER_PROMPT, text_content
-                );
-
                 serde_json::json!({
                     "model": self.model,
                     "messages": [
                         {
+                            "role": "system",
+                            "content": SYSTEM_PROMPT
+                        },
+                        {
                             "role": "user",
-                            "content": prompt
+                            "content": format!("Extract all information, text, entities, and details from this document into JSON.\n\n{}", text_content)
                         }
                     ],
                     "temperature": 0.6,
@@ -267,18 +251,16 @@ impl DocumentProcessor for NvidiaKimiProcessor {
                 })
             }
             DocumentType::Voice => {
-                // Check if the uploaded bytes are already a text transcript (e.g. text/vtt/json)
                 let text_sample = String::from_utf8(bytes.clone());
                 let prompt = match text_sample {
                     Ok(transcript) => format!(
-                        "{}\n\n--- AUDIO TRANSCRIPTION ---\n{}",
-                        VOICE_ANALYSIS_PROMPT, transcript
+                        "Extract all information, conversation transcript, entities, and details into JSON.\n\n{}",
+                        transcript
                     ),
                     Err(_) => {
-                        // Binary audio file (e.g. WAV/MP3) without companion transcript
                         format!(
-                            "{}\n\n--- AUDIO RECORDING METADATA ---\nDocument Title: {}\nDescription: {}\n(Note: Binary audio stream uploaded; analyzed metadata and title).",
-                            VOICE_ANALYSIS_PROMPT, doc_model.title, doc_model.description
+                            "Extract all information from this audio metadata into JSON.\nDocument Title: {}\nDescription: {}",
+                            doc_model.title, doc_model.description
                         )
                     }
                 };
@@ -286,6 +268,10 @@ impl DocumentProcessor for NvidiaKimiProcessor {
                 serde_json::json!({
                     "model": self.model,
                     "messages": [
+                        {
+                            "role": "system",
+                            "content": SYSTEM_PROMPT
+                        },
                         {
                             "role": "user",
                             "content": prompt
@@ -325,23 +311,48 @@ impl DocumentProcessor for NvidiaKimiProcessor {
                 DocumentErrors::StorageError(format!("NVIDIA NIM request failed: {}", e))
             })?;
 
-        // If 503 (worker local total limit reached), wait 3s and retry once
+        // If 503 (worker local total limit reached), wait 3s and retry once, then fallback to moonshotai/kimi-k3 if still 503
         if response.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
             tracing::warn!(
                 "[NvidiaProcessor][RETRY] 503 Service Unavailable received for doc_id={}. Retrying in 3s...",
                 doc_id
             );
             tokio::time::sleep(Duration::from_secs(3)).await;
-            if let Ok(retry_resp) = self
+            let retry_resp = self
                 .client
                 .post(&self.endpoint)
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("Content-Type", "application/json")
                 .json(&payload)
                 .send()
-                .await
-            {
-                response = retry_resp;
+                .await;
+
+            match retry_resp {
+                Ok(resp) if resp.status().is_success() => {
+                    response = resp;
+                }
+                _ => {
+                    // Fallback to moonshotai/kimi-k3 if primary model worker pool is saturated
+                    tracing::warn!(
+                        "[NvidiaProcessor][FALLBACK] Primary model pool saturated. Falling back to moonshotai/kimi-k3 for doc_id={}...",
+                        doc_id
+                    );
+                    let mut fallback_payload = payload.clone();
+                    fallback_payload["model"] = serde_json::Value::String("moonshotai/kimi-k3".to_string());
+                    if let Ok(fb_resp) = self
+                        .client
+                        .post(&self.endpoint)
+                        .header("Authorization", format!("Bearer {}", self.api_key))
+                        .header("Content-Type", "application/json")
+                        .json(&fallback_payload)
+                        .send()
+                        .await
+                    {
+                        if fb_resp.status().is_success() {
+                            response = fb_resp;
+                        }
+                    }
+                }
             }
         }
 
@@ -389,7 +400,7 @@ impl DocumentProcessor for NvidiaKimiProcessor {
 
         let mut extracted = Self::parse_model_json(content);
 
-        // Ensure transcribed_text field exists for downstream consumers
+        // Ensure transcribed_text field exists for downstream consumers if object
         if let Some(obj) = extracted.as_object_mut() {
             if !obj.contains_key("transcribed_text") {
                 obj.insert(
@@ -418,9 +429,10 @@ impl DocumentProcessor for NvidiaKimiProcessor {
     ) -> Result<(), DocumentErrors> {
         tracing::debug!("[NvidiaProcessor][CRON] Scanning for unprocessed documents...");
 
+        // Query confirmed documents (or documents stuck in processing) where extracted_information IS NULL
         let documents = document::Entity::find()
-            .filter(document::Column::Status.eq(DocumentStatus::Success))
             .filter(document::Column::ExtractedInformation.is_null())
+            .filter(document::Column::Status.is_in([DocumentStatus::Success, DocumentStatus::Processing]))
             .all(db)
             .await
             .map_err(|e| {
@@ -472,24 +484,38 @@ impl DocumentProcessor for NvidiaKimiProcessor {
                 }
             };
 
-            if let Err(e) = process_result {
-                tracing::error!(
-                    "[NvidiaProcessor][PROCESSING_ERROR] Error processing doc_id={}: {}",
-                    doc_id,
-                    e
-                );
-            }
-
-            // Transition status → Finish
-            if let Ok(Some(d)) = document::Entity::find_by_id(doc_id).one(db).await {
-                let mut active: document::ActiveModel = d.into();
-                active.status = Set(DocumentStatus::Finish);
-                active.updated_at = Set(chrono::Utc::now().fixed_offset());
-                let _ = active.update(db).await;
-                tracing::info!(
-                    "[NvidiaProcessor][STATUS_TRANSITION] doc_id={} → Finish",
-                    doc_id
-                );
+            match process_result {
+                Ok(_) => {
+                    // Transition status → Finish ONLY when processing succeeded and extracted_information is saved
+                    if let Ok(Some(d)) = document::Entity::find_by_id(doc_id).one(db).await {
+                        let mut active: document::ActiveModel = d.into();
+                        active.status = Set(DocumentStatus::Finish);
+                        active.updated_at = Set(chrono::Utc::now().fixed_offset());
+                        let _ = active.update(db).await;
+                        tracing::info!(
+                            "[NvidiaProcessor][STATUS_TRANSITION] doc_id={} → Finish",
+                            doc_id
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "[NvidiaProcessor][PROCESSING_ERROR] Error processing doc_id={}: {}",
+                        doc_id,
+                        e
+                    );
+                    // Reset status to Success so it will be retried on next cron tick instead of being stuck
+                    if let Ok(Some(d)) = document::Entity::find_by_id(doc_id).one(db).await {
+                        let mut active: document::ActiveModel = d.into();
+                        active.status = Set(DocumentStatus::Success);
+                        active.updated_at = Set(chrono::Utc::now().fixed_offset());
+                        let _ = active.update(db).await;
+                        tracing::warn!(
+                            "[NvidiaProcessor][STATUS_RESET] doc_id={} reset to Success for retry",
+                            doc_id
+                        );
+                    }
+                }
             }
         }
 
